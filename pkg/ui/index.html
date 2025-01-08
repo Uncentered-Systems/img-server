@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Retriever</title>
+    <style>
+        body {
+            background-color: #8B4513;
+            color: white;
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input {
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            flex-grow: 1;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #D2691E;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #A0522D;
+        }
+        .image-container {
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 4px;
+        }
+        #retrievedImage {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+        #debug {
+            margin-top: 20px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .uri-list {
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .uri-item {
+            padding: 5px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .uri-item:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .image-info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #DEB887;
+        }
+
+        .columns {
+            display: flex;
+            gap: 20px;
+        }
+
+        .left-column {
+            flex: 2;
+        }
+
+        .right-column {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image Retriever</h1>
+        <div class="columns">
+            <div class="left-column">
+                <div class="input-group">
+                    <input type="text" id="uriInput" placeholder="Enter image URI">
+                    <button onclick="getImage()">Get Image</button>
+                </div>
+                <div class="image-container">
+                    <img id="retrievedImage" alt="Retrieved Image">
+                    <div class="image-info" id="imageInfo"></div>
+                </div>
+            </div>
+            <div class="right-column">
+                <h3>Available Images</h3>
+                <div class="uri-list" id="uriList">
+                    Loading URIs...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load URIs when page loads
+        //window.addEventListener('load', loadURIs);
+
+        async function loadURIs() {
+            try {
+                const response = await fetch('http://localhost:8081/img-server:img-server:uncentered.os', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ "ListImages": null })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const uris = result.Ok || [];
+                
+                const uriList = document.getElementById('uriList');
+                if (uris.length === 0) {
+                    uriList.innerHTML = '<div class="uri-item">No images available</div>';
+                    return;
+                }
+
+                uriList.innerHTML = uris
+                    .map(uri => `
+                        <div class="uri-item" onclick="selectUri('${uri}')">
+                            ${uri.substring(0, 20)}...
+                        </div>
+                    `)
+                    .join('');
+
+            } catch (error) {
+                console.error('Error loading URIs:', error);
+                document.getElementById('uriList').innerHTML = 
+                    `<div class="uri-item">Error loading URIs: ${error.message}</div>`;
+            }
+        }
+
+        function selectUri(uri) {
+            document.getElementById('uriInput').value = uri;
+            //getImage();
+        }
+
+        function formatSize(base64String) {
+            const bytes = atob(base64String).length;
+            if (bytes < 1024) return `${bytes} bytes`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        }
+
+        async function getImage() {
+            const uri = document.getElementById('uriInput').value;
+            const statusText = document.getElementById('statusText');
+            const responseText = document.getElementById('responseText');
+            const imgElement = document.getElementById('retrievedImage');
+            const imageInfo = document.getElementById('imageInfo');
+
+            if (!uri) {
+                updateStatus('Error: No URI provided');
+                return;
+            }
+
+            try {
+                updateStatus('Fetching image...');
+                
+                const response = await fetch('http://localhost:8081/img-server:img-server:uncentered.os', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        "GetImage": uri
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                updateResponse(result);
+
+                let base64Data;
+                if (typeof result === 'string') {
+                    base64Data = result;
+                } else if (result.Ok) {
+                    base64Data = result.Ok;
+                } else if (result.Err) {
+                    throw new Error(result.Err);
+                } else {
+                    throw new Error('Unexpected response format');
+                }
+
+                imgElement.src = `data:image/jpeg;base64,${base64Data}`;
+                imageInfo.textContent = `Size: ${formatSize(base64Data)}`;
+                updateStatus('Image loaded successfully');
+
+            } catch (error) {
+                console.error('Error:', error);
+                updateStatus(`Error: ${error.message}`);
+                imgElement.src = '';
+                imageInfo.textContent = '';
+            }
+        }
+
+        function updateStatus(message) {
+            const statusText = document.getElementById('statusText');
+            statusText.textContent = message;
+        }
+
+        function updateResponse(data) {
+            const responseText = document.getElementById('responseText');
+            responseText.textContent = JSON.stringify(data, null, 2);
+        }
+    </script>
+
+    <div id="debug">
+        <div>Status: <span id="statusText">Waiting for image retrieval...</span></div>
+        <div>Response: <pre id="responseText"></pre></div>
+    </div>
+</body>
+</html>
